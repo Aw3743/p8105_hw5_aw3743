@@ -1,0 +1,372 @@
+---
+title: "Homework 5 Analysis "
+author: "Aisha Waggeh"
+date : "11/14/2025"
+output:github_document:
+theme: flatly
+toc: true
+toc_float: true
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(broom)
+library(forcats)
+set.seed(123)
+
+```
+
+
+## Simulation: Birthday Paradox and Homicide Analysis
+
+## Overview
+This document walks through **Problems 1–3**.  We begin with the **Birthday Paradox Simulation** (Problem 1) to understand probabilities through repeated random sampling. Then, we move to the **Power Simulation** (Problem 2) and finish with the **Homicide Analysis** (Problem 3) using real-world data from *The Washington Post*.
+
+
+### Problem 1: Birthday Paradox Simulation
+
+The **birthday problem** asks: How likely is it that, in a group of \( n \) people, at least two share a birthday? We assume 365 days per year (no leap year), and birthdays evenly distributed.
+
+```{r problem1}
+# Function to check for shared birthdays in a group
+check_birthday_match <- function(group_size) {
+  birthdays <- sample(1:365, size = group_size, replace = TRUE)
+  any(duplicated(birthdays))
+}
+
+# Function to run birthday simulation for multiple group sizes
+run_birthday_simulation <- function(group_sizes, n_sims = 10000) {
+  map_df(group_sizes, function(size) {
+    results <- map_lgl(1:n_sims, ~ check_birthday_match(size))
+    tibble(
+      group_size = size,
+      prob_shared = mean(results)
+    )
+  })
+}
+
+# Run simulation and create plot
+set.seed(123)
+birthday_results <- run_birthday_simulation(2:50)
+
+birthday_plot <- birthday_results %>%
+  ggplot(aes(x = group_size, y = prob_shared)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 1) +
+  labs(
+    title = "Probability of Shared Birthday by Group Size",
+    x = "Group Size",
+    y = "Probability of Shared Birthday"
+  ) +
+  theme_minimal()
+
+birthday_plot
+
+```
+
+                        ### Problem 1 Results Commentary
+
+The simulation results clearly demonstrate the counterintuitive nature of the Birthday Paradox. The probability of shared birthdays increases dramatically with group size, reaching approximately:
+
+- **50% probability** with only 23 people (most people guess 180+)
+- **70% probability** with 30 people
+- **97% probability** with 50 people
+
+This surprising result occurs because we're comparing all possible pairs of people in the group, and the number of pairs grows quadratically (n*(n-1)/2) rather than linearly. The smooth curve confirms our simulation provides stable estimates aligned with theoretical expectations.
+
+This phenomenon has practical implications in cryptography (birthday attacks), quality control, and understanding everyday coincidences.
+
+
+
+### Problem 2: Power Analysis
+
+```{r problem2}
+
+# Function to simulate one dataset and perform t-test
+simulate_ttest <- function(mu, n = 30, sigma = 5) {
+  sample_data <- rnorm(n, mean = mu, sd = sigma)
+  test_result <- t.test(sample_data, mu = 0)
+  tidy_result <- broom::tidy(test_result)
+  
+  tibble(
+    mu_hat = tidy_result$estimate,
+    p_value = tidy_result$p.value,
+    rejected = tidy_result$p.value < 0.05
+  )
+}
+
+# Function to run power simulation for multiple mu values
+run_power_simulation <- function(mu_values, n_sims = 5000) {
+  map_df(mu_values, function(mu) {
+    results <- map_df(1:n_sims, ~ simulate_ttest(mu))
+    
+    results %>%
+      summarise(
+        power = mean(rejected),
+        avg_mu_hat = mean(mu_hat),
+        avg_mu_hat_rejected = mean(mu_hat[rejected])
+      ) %>%
+      mutate(true_mu = mu)
+  })
+}
+
+# Run simulation for different mu values
+mu_values <- c(0, 1, 2, 3, 4, 5, 6)
+
+set.seed(123)
+power_results <- run_power_simulation(mu_values)
+
+# Plot 1: Power vs Effect Size
+power_plot <- power_results %>%
+  ggplot(aes(x = true_mu, y = power)) +
+  geom_line(color = "darkred", linewidth = 1) +  # Changed from size to linewidth
+  geom_point(color = "darkred", size = 2) +
+  labs(
+    title = "Power vs Effect Size",
+    x = "True μ",
+    y = "Power (Probability of Rejecting H₀)"
+  ) +
+  theme_minimal()
+
+# Plot 2: Average Estimate vs True μ
+estimate_data <- power_results %>%
+  select(true_mu, avg_mu_hat, avg_mu_hat_rejected) %>%
+  pivot_longer(
+    cols = c(avg_mu_hat, avg_mu_hat_rejected),
+    names_to = "estimate_type",
+    values_to = "estimate_value"
+  )
+
+estimate_plot <- estimate_data %>%
+  ggplot(aes(x = true_mu, y = estimate_value, color = estimate_type)) +
+  geom_line(linewidth = 1) +  # Changed from size to linewidth
+  geom_point(size = 2) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+  labs(
+    title = "Average Estimate vs True μ",
+    x = "True μ",
+    y = "Average Estimate of μ",
+    color = "Estimate Type"
+  ) +
+  scale_color_manual(
+    values = c("avg_mu_hat" = "blue", "avg_mu_hat_rejected" = "red"),
+    labels = c("All Samples", "Only When H₀ Rejected")
+  ) +
+  theme_minimal()
+
+power_plot
+estimate_plot
+
+```
+
+
+                    ### Problem 2 Results Analysis
+
+### Association between Effect Size and Power
+
+The first plot shows a strong positive association between effect size (true μ) and power. As the true effect size increases from 0 to 6, the power increases from approximately 5% to nearly 100%. The relationship follows the characteristic S-shaped power curve, with the most rapid increase in power occurring in the μ = 1-3 range. This demonstrates that larger true effects are easier to detect with statistical tests.
+
+### Comparison of Average Estimates
+
+The second plot compares two types of average estimates:
+
+- **Blue Line**: Average μ̂ across all samples closely matches the true μ values
+- **Red Line**: Average μ̂ only for samples where H₀ was rejected shows systematic bias
+
+**Is the sample average of μ̂ across rejected tests equal to the true μ?**
+No, especially for smaller effect sizes (μ = 1-2), the average of significant estimates is biased upward.
+
+**Why does this occur?**
+
+This demonstrates "selection bias" in statistical testing. When true effects are small, we only reject H₀ when we obtain unusually large sample estimates by chance. Since the test has low power for small effects, only the most extreme samples lead to rejection, creating upward bias. As power increases with larger effect sizes, this bias diminishes because we reject H₀ more consistently across the sampling distribution.
+
+
+
+
+## Problem 3: Homicide Data Analysis
+
+
+```{r problem3}
+
+# Create data directory if it doesn't exist, need to download the data before running analysis first. 
+if (!dir.exists("data")) {
+  dir.create("data")
+}
+
+# Download directly from the raw GitHub URL
+homicide_url <- "https://raw.githubusercontent.com/washingtonpost/data-homicides/master/homicide-data.csv"
+
+# Download the file
+download.file(homicide_url, destfile = "data/homicide-data.csv")
+
+# Verify it worked
+file.exists("data/homicide-data.csv")
+
+```
+
+
+
+```{r problem 3b}
+
+# Step 2: Load and describe the raw data
+homicide_data <- read_csv("data/homicide-data.csv")
+
+# Describe the raw data
+cat("Raw data description:\n")
+cat("Number of rows:", nrow(homicide_data), "\n")
+cat("Number of columns:", ncol(homicide_data), "\n")
+cat("Column names:", names(homicide_data), "\n")
+cat("\nFirst few rows:\n")
+head(homicide_data)
+cat("\nDisposition counts:\n")
+table(homicide_data$disposition)
+
+# Step 3: Create city_state variable and summarize within cities
+city_summary <- homicide_data %>%
+  mutate(
+    city_state = paste(city, state, sep = ", "),
+    disposition = case_when(
+      disposition %in% c("Closed without arrest", "Open/No arrest") ~ "unsolved",
+      disposition == "Closed by arrest" ~ "solved",
+      TRUE ~ "other"
+    )
+  ) %>%
+  filter(disposition %in% c("solved", "unsolved")) %>%
+  group_by(city_state) %>%
+  summarise(
+    total_homicides = n(),
+    unsolved_homicides = sum(disposition == "unsolved"),
+    .groups = "drop"
+  )
+
+# Display city summary
+cat("\nCity summary (first 10 cities):\n")
+head(city_summary, 10)
+
+# Step 4: Baltimore, MD analysis
+baltimore_data <- city_summary %>%
+  filter(city_state == "Baltimore, MD")
+
+cat("\nBaltimore, MD data:\n")
+print(baltimore_data)
+
+baltimore_test <- prop.test(
+  baltimore_data$unsolved_homicides,
+  baltimore_data$total_homicides
+)
+
+baltimore_tidy <- broom::tidy(baltimore_test)
+
+cat("\nBaltimore prop.test results:\n")
+print(baltimore_tidy)
+
+# Step 5: Run prop.test for all cities using tidy approach
+run_prop_test <- function(total, unsolved) {
+  test_result <- prop.test(unsolved, total)
+  broom::tidy(test_result)
+}
+
+city_tests <- city_summary %>%
+  mutate(
+    test_results = map2(total_homicides, unsolved_homicides, run_prop_test)
+  ) %>%
+  unnest(test_results) %>%
+  rename(
+    proportion_unsolved = estimate,
+    conf_low = conf.low,
+    conf_high = conf.high
+  ) %>%
+  select(city_state, total_homicides, unsolved_homicides, 
+         proportion_unsolved, conf_low, conf_high, p.value)
+
+# Display results for first few cities
+cat("\nProportion test results for first 10 cities:\n")
+head(city_tests, 10)
+
+# Step 6: Create plot showing estimates and CIs
+homicide_plot <- city_tests %>%
+  mutate(city_state = fct_reorder(city_state, proportion_unsolved)) %>%
+  ggplot(aes(x = proportion_unsolved, y = city_state)) +
+  geom_point(color = "darkblue", size = 1.5) +
+  geom_errorbarh(aes(xmin = conf_low, xmax = conf_high), 
+                 height = 0.2, color = "darkblue", alpha = 0.7) +
+  labs(
+    title = "Proportion of Unsolved Homicides by City",
+    subtitle = "With 95% Confidence Intervals",
+    x = "Proportion of Unsolved Homicides",
+    y = "City"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 12),
+    axis.text.y = element_text(size = 6),
+    axis.text.x = element_text(size = 10)
+  )
+
+# Display the plot
+print(homicide_plot)
+
+# Step 7: Additional summary statistics
+cat("\nOverall summary statistics:\n")
+cat("Total number of cities:", nrow(city_tests), "\n")
+cat("Range of unsolved proportions:", 
+    round(min(city_tests$proportion_unsolved), 3), "-", 
+    round(max(city_tests$proportion_unsolved), 3), "\n")
+cat("Median proportion unsolved:", 
+    round(median(city_tests$proportion_unsolved), 3), "\n")
+
+# Cities with highest and lowest unsolved rates
+cat("\nCities with highest proportion of unsolved homicides:\n")
+city_tests %>%
+  arrange(desc(proportion_unsolved)) %>%
+  select(city_state, proportion_unsolved) %>%
+  head(5) %>%
+  print()
+
+cat("\nCities with lowest proportion of unsolved homicides:\n")
+city_tests %>%
+  arrange(proportion_unsolved) %>%
+  select(city_state, proportion_unsolved) %>%
+  head(5) %>%
+  print()
+
+```
+
+
+                              ## Problem 3 Results Summary
+
+### Raw Data Description:
+- **52,179 homicide cases** across 50+ U.S. cities
+
+**Disposition breakdown:**
+- Closed by arrest: 25,674 (49.2%)
+- Closed without arrest: 2,922 (5.6%) 
+- Open/No arrest: 23,583 (45.2%)
+
+### Key Findings:
+
+**Baltimore, MD Analysis:**
+
+- Total homicides: 2,827
+- Unsolved homicides: 1,825
+- **Estimated proportion unsolved: 0.646 (64.6%)**
+- **95% CI: (0.628, 0.663)**
+
+**City Comparisons:**
+
+- **Highest unsolved rates:** Chicago, IL (73.6%), New Orleans, LA (64.9%), Baltimore, MD (64.6%)
+- **Lowest unsolved rates:** Tulsa, AL (0%), Richmond, VA (26.3%), Charlotte, NC (30.0%)
+- **Median unsolved rate:** 45.7% across all cities
+
+
+### Plot Interpretation:
+The plot successfully shows:
+
+- Each city as a point with its estimated proportion of unsolved homicides
+- Error bars representing 95% confidence intervals  
+- Cities ordered from lowest to highest unsolved rates
+- Clear visualization of the substantial variation across cities
+
+The analysis reveals dramatic differences in homicide clearance rates across U.S. cities, with some cities solving less than 30% of homicides while others solve over 70%.
+
